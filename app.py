@@ -4,7 +4,6 @@ import numpy as np
 import math
 import plotly.express as px
 import requests
-import os
 
 st.set_page_config(page_title="Career Mobility AI", layout="wide")
 
@@ -154,9 +153,8 @@ with tab2:
 
     if st.button("Fetch Live Jobs"):
 
-        APP_ID = os.getenv("ADZUNA_ID")
-        APP_KEY = os.getenv("ADZUNA_KEY")
-
+        APP_ID="3855f57a"
+        APP_KEY="06d8f4360d531a49cad05a0ab95d9370"
         if not APP_ID or not APP_KEY:
             st.error("Adzuna API keys not set in Streamlit secrets.")
         else:
