@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import requests
 from sklearn.preprocessing import MinMaxScaler
+import os
 
 st.set_page_config(page_title="Career Mobility AI", layout="wide")
 
@@ -157,8 +158,8 @@ with tab2:
 
     if st.button("Fetch Live Jobs"):
 
-        APP_ID = "3855f57a"
-        APP_KEY = "06d8f4360d531a49cad05a0ab95d9370"
+        APP_ID = os.getenv("ADZUNA_ID")
+        APP_KEY = os.getenv("ADZUNA_KEY")
 
         url = f"https://api.adzuna.com/v1/api/jobs/in/search/1?app_id={APP_ID}&app_key={APP_KEY}&what={keyword}&where={city}"
 
