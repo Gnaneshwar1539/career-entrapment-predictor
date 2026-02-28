@@ -15,3 +15,13 @@ Many professionals feel stuck in careers misaligned with their skills and intere
 - Scikit-learn
 
 ## 📂 Project Structure
+career-entrapment-predictor/
+│
+├── app.py
+├── requirements.txt
+├── models/
+│ └── model.pkl
+├── data/
+│ └── dataset.csv
+├── README.md
+├── .gitignore
