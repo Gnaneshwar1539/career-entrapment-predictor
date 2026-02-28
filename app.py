@@ -4,6 +4,7 @@ import numpy as np
 import math
 import plotly.express as px
 import requests
+import os
 
 st.set_page_config(page_title="Career Mobility AI", layout="wide")
 
@@ -43,19 +44,6 @@ textarea, input, select {
 .stButton>button:hover {
     box-shadow: 0 0 25px #00f5ff;
 }
-
-div[data-testid="stMetric"] {
-    background: rgba(255,255,255,0.08);
-    padding: 20px;
-    border-radius: 20px;
-    box-shadow: 0 0 20px rgba(0,255,255,0.4);
-}
-
-div[data-testid="stMetricValue"] {
-    color: #00f5ff !important;
-    font-size: 28px;
-    font-weight: bold;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -83,6 +71,17 @@ market_data = pd.DataFrame({
     "DemandScore": [95, 90, 98, 92, 85, 93, 88, 87],
     "AvgSalary_LPA": [12, 15, 20, 18, 14, 16, 13, 17]
 })
+
+# =====================================================
+# HELPER FUNCTION (CACHED API CALL)
+# =====================================================
+
+@st.cache_data(ttl=3600)
+def fetch_jobs(app_id, app_key, keyword, city):
+    url = f"https://api.adzuna.com/v1/api/jobs/in/search/1?app_id={app_id}&app_key={app_key}&what={keyword}&where={city}"
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+    return response.json()
 
 # =====================================================
 # TABS
@@ -153,16 +152,15 @@ with tab2:
 
     if st.button("Fetch Live Jobs"):
 
-        APP_ID="3855f57a"
-        APP_KEY="06d8f4360d531a49cad05a0ab95d9370"
-        if not APP_ID or not APP_KEY:
-            st.error("Adzuna API keys not set in Streamlit secrets.")
-        else:
-            url = f"https://api.adzuna.com/v1/api/jobs/in/search/1?app_id={APP_ID}&app_key={APP_KEY}&what={keyword}&where={city}"
+        APP_ID = os.getenv("ADZUNA_ID")
+        APP_KEY = os.getenv("ADZUNA_KEY")
 
+        if not APP_ID or not APP_KEY:
+            st.error("API keys not configured. Please set ADZUNA_ID and ADZUNA_KEY in Streamlit secrets.")
+        else:
             try:
-                response = requests.get(url)
-                data = response.json()
+                with st.spinner("Fetching live jobs..."):
+                    data = fetch_jobs(APP_ID, APP_KEY, keyword, city)
 
                 jobs = []
                 for job in data.get("results", [])[:10]:
@@ -173,12 +171,13 @@ with tab2:
                     })
 
                 if jobs:
+                    st.success("Jobs fetched successfully!")
                     st.dataframe(pd.DataFrame(jobs))
                 else:
                     st.warning("No jobs found.")
 
-            except:
-                st.error("API request failed.")
+            except requests.exceptions.RequestException as e:
+                st.error(f"API request failed: {e}")
 
 # =====================================================
 # TAB 3 – SKILL GAP
