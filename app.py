@@ -147,7 +147,7 @@ with tab2:
 
     st.header("Live Market Intelligence")
 
-    city = st.selectbox("Select Indian City", ["bangalore", "hyderabad", "mumbai", "pune", "chennai"])
+    city = st.selectbox("Select Indian City", ["bangalore", "hyderabad", "mumbai", "pune", "chennai","noida"])
     keyword = st.text_input("Job Keyword (e.g. python, cloud)")
 
     if st.button("Fetch Live Jobs"):
