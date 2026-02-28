@@ -24,16 +24,6 @@ footer {visibility: hidden;}
     font-family: 'Segoe UI', sans-serif;
 }
 
-h1, h2, h3, h4, h5, h6, label, p {
-    color: white !important;
-}
-
-textarea, input, select {
-    background: rgba(255,255,255,0.08) !important;
-    color: black !important;
-    border-radius: 12px !important;
-}
-
 .stButton>button {
     background: linear-gradient(135deg, #00f5ff, #7f00ff);
     border-radius: 25px;
@@ -41,23 +31,6 @@ textarea, input, select {
     font-weight: bold;
     color: white !important;
     border: none;
-}
-
-.stButton>button:hover {
-    box-shadow: 0 0 25px #00f5ff;
-}
-
-div[data-testid="stMetric"] {
-    background: rgba(255,255,255,0.08);
-    padding: 20px;
-    border-radius: 20px;
-    box-shadow: 0 0 20px rgba(0,255,255,0.4);
-}
-
-div[data-testid="stMetricValue"] {
-    color: #00f5ff !important;
-    font-size: 28px;
-    font-weight: bold;
 }
 </style>
 """, unsafe_allow_html=True)
