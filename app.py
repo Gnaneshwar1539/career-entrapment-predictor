@@ -3,8 +3,11 @@ import pandas as pd
 import numpy as np
 import math
 import plotly.express as px
+import plotly.graph_objects as go
 import requests
 import os
+import PyPDF2
+from docx import Document
 
 st.set_page_config(page_title="Career Mobility AI", layout="wide")
 
@@ -73,7 +76,7 @@ market_data = pd.DataFrame({
 })
 
 # =====================================================
-# HELPER FUNCTION (CACHED API CALL)
+# JOB FETCH FUNCTION
 # =====================================================
 
 @st.cache_data(ttl=3600)
@@ -92,7 +95,7 @@ tab1, tab2, tab3, tab4 = st.tabs(
 )
 
 # =====================================================
-# TAB 1 – CAREER RISK
+# TAB 1 – CAREER RISK + GRAPHS
 # =====================================================
 
 with tab1:
@@ -131,13 +134,64 @@ with tab1:
         st.session_state.burnout = burnout_probability
         st.session_state.runway = runway
         st.session_state.skill_count = skill_count
+        st.session_state.portability = portability
+        st.session_state.lock_in = lock_in
+        st.session_state.decay = decay
 
     if "entrapment" in st.session_state:
 
+        entrapment = st.session_state.entrapment
+        burnout = st.session_state.burnout
+
         colA, colB, colC = st.columns(3)
-        colA.metric("🔥 Entrapment Score", f"{round(st.session_state.entrapment,2)}/100")
-        colB.metric("⚠ Burnout Probability", f"{round(st.session_state.burnout,2)}%")
+        colA.metric("🔥 Entrapment Score", f"{round(entrapment,2)}/100")
+        colB.metric("⚠ Burnout Probability", f"{round(burnout,2)}%")
         colC.metric("💰 Financial Runway", f"{round(st.session_state.runway,2)} months")
+
+        st.markdown("---")
+
+        # Gauge Charts
+        col1, col2 = st.columns(2)
+
+        with col1:
+            fig_gauge1 = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=entrapment,
+                title={'text': "Entrapment Score"},
+                gauge={'axis': {'range': [0,100]}}
+            ))
+            fig_gauge1.update_layout(template="plotly_dark")
+            st.plotly_chart(fig_gauge1, use_container_width=True)
+
+        with col2:
+            fig_gauge2 = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=burnout,
+                title={'text': "Burnout Probability"},
+                gauge={'axis': {'range': [0,100]}}
+            ))
+            fig_gauge2.update_layout(template="plotly_dark")
+            st.plotly_chart(fig_gauge2, use_container_width=True)
+
+        # Radar Chart
+        radar_df = pd.DataFrame({
+            "Metric": ["Skill Portability", "Debt Lock-in", "Career Stagnation"],
+            "Score": [
+                st.session_state.portability,
+                st.session_state.lock_in,
+                st.session_state.decay
+            ]
+        })
+
+        fig_radar = px.line_polar(
+            radar_df,
+            r="Score",
+            theta="Metric",
+            line_close=True,
+            template="plotly_dark"
+        )
+        fig_radar.update_traces(fill='toself')
+        st.plotly_chart(fig_radar, use_container_width=True)
 
 # =====================================================
 # TAB 2 – LIVE JOBS
@@ -148,7 +202,7 @@ with tab2:
     st.header("Live Market Intelligence")
 
     city = st.selectbox("Select Indian City", ["bangalore", "hyderabad", "mumbai", "pune", "chennai","noida"])
-    keyword = st.text_input("Job Keyword (e.g. python, cloud)")
+    keyword = st.text_input("Job Keyword")
 
     if st.button("Fetch Live Jobs"):
 
@@ -156,61 +210,78 @@ with tab2:
         APP_KEY = os.getenv("ADZUNA_KEY")
 
         if not APP_ID or not APP_KEY:
-            st.error("API keys not configured. Please set ADZUNA_ID and ADZUNA_KEY in Streamlit secrets.")
+            st.error("API keys not configured.")
         else:
-            try:
-                with st.spinner("Fetching live jobs..."):
-                    data = fetch_jobs(APP_ID, APP_KEY, keyword, city)
+            with st.spinner("Fetching live jobs..."):
+                data = fetch_jobs(APP_ID, APP_KEY, keyword, city)
 
-                jobs = []
-                for job in data.get("results", [])[:10]:
-                    jobs.append({
-                        "Title": job["title"],
-                        "Company": job.get("company", {}).get("display_name", "Unknown"),
-                        "Location": job["location"]["display_name"]
-                    })
+            jobs = []
+            for job in data.get("results", [])[:10]:
+                jobs.append({
+                    "Title": job["title"],
+                    "Company": job.get("company", {}).get("display_name", "Unknown"),
+                    "Location": job["location"]["display_name"]
+                })
 
-                if jobs:
-                    st.success("Jobs fetched successfully!")
-                    st.dataframe(pd.DataFrame(jobs))
-                else:
-                    st.warning("No jobs found.")
-
-            except requests.exceptions.RequestException as e:
-                st.error(f"API request failed: {e}")
+            if jobs:
+                st.dataframe(pd.DataFrame(jobs))
+            else:
+                st.warning("No jobs found.")
 
 # =====================================================
-# TAB 3 – SKILL GAP
+# TAB 3 – RESUME UPLOAD + SKILL GAP
 # =====================================================
 
 with tab3:
 
     st.header("Skill Gap & Market Demand Analysis")
 
-    resume_text = st.text_area("Paste Resume Text")
+    uploaded_file = st.file_uploader("Upload Resume (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
+
+    resume_text = ""
+
+    if uploaded_file is not None:
+
+        if uploaded_file.type == "application/pdf":
+            pdf_reader = PyPDF2.PdfReader(uploaded_file)
+            for page in pdf_reader.pages:
+                resume_text += page.extract_text() or ""
+
+        elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            doc = Document(uploaded_file)
+            for para in doc.paragraphs:
+                resume_text += para.text + "\n"
+
+        elif uploaded_file.type == "text/plain":
+            resume_text = uploaded_file.read().decode("utf-8")
 
     if st.button("Analyze Skill Gap"):
 
-        resume_lower = resume_text.lower()
-        detected = [skill for skill in market_data["Skill"] if skill in resume_lower]
-        missing = list(set(market_data["Skill"]) - set(detected))
+        if not resume_text:
+            st.warning("Please upload a valid resume file.")
+        else:
+            resume_lower = resume_text.lower()
 
-        st.success(f"Detected Skills: {detected}")
-        st.error(f"Missing High-Demand Skills: {missing}")
+            detected = [skill for skill in market_data["Skill"] if skill in resume_lower]
+            missing = list(set(market_data["Skill"]) - set(detected))
 
-        demand_df = market_data.copy()
-        demand_df["Present"] = demand_df["Skill"].apply(lambda x: 1 if x in detected else 0)
+            st.success(f"Detected Skills: {detected}")
+            st.error(f"Missing High-Demand Skills: {missing}")
 
-        fig = px.bar(
-            demand_df,
-            x="Skill",
-            y="DemandScore",
-            color="Present",
-            title="Skill Demand vs Your Coverage",
-            template="plotly_dark"
-        )
+            demand_df = market_data.copy()
+            demand_df["Present"] = demand_df["Skill"].apply(
+                lambda x: 1 if x in detected else 0
+            )
 
-        st.plotly_chart(fig, use_container_width=True)
+            fig = px.bar(
+                demand_df,
+                x="Skill",
+                y="DemandScore",
+                color="Present",
+                template="plotly_dark"
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
 
 # =====================================================
 # TAB 4 – EXECUTIVE SUMMARY
@@ -243,9 +314,9 @@ with tab4:
             if entrapment > 70:
                 recommendations.append("Initiate job switch within 6 months.")
             if burnout > 60:
-                recommendations.append("Reduce workload to prevent burnout.")
+                recommendations.append("Reduce workload.")
             if runway < 6:
-                recommendations.append("Increase savings buffer to 6–12 months.")
+                recommendations.append("Increase savings buffer.")
             if skill_count < 4:
                 recommendations.append("Add AI/Cloud/Data skills.")
 
@@ -260,3 +331,5 @@ Risk Level: {risk}
 Recommendations:
 - {'\n- '.join(recommendations)}
 """)
+            
+            
