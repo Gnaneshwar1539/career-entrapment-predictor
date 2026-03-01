@@ -3,333 +3,334 @@ import pandas as pd
 import numpy as np
 import math
 import plotly.express as px
-import plotly.graph_objects as go
 import requests
-import os
 import PyPDF2
 from docx import Document
+from urllib.parse import quote
+import re
 
 st.set_page_config(page_title="Career Mobility AI", layout="wide")
 
 # =====================================================
-# PREMIUM UI STYLING
+# SESSION STATE INIT
+# =====================================================
+
+for key in ["page", "selected_company", "selected_job", "job_results"]:
+    if key not in st.session_state:
+        st.session_state[key] = None if key != "job_results" else []
+
+if not st.session_state.page:
+    st.session_state.page = "jobs"
+
+# =====================================================
+# PREMIUM UI
 # =====================================================
 
 st.markdown("""
 <style>
 header {visibility: hidden;}
 footer {visibility: hidden;}
-
 .stApp {
     background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
     font-family: 'Segoe UI', sans-serif;
 }
-
-h1, h2, h3, h4, h5, h6, label, p {
-    color: white !important;
-}
-
-textarea, input, select {
-    background: rgba(255,255,255,0.08) !important;
-    color: black !important;
-    border-radius: 12px !important;
-}
-
+h1,h2,h3,h4,h5,h6,label,p {color:white !important;}
 .stButton>button {
-    background: linear-gradient(135deg, #00f5ff, #7f00ff);
+    background: linear-gradient(135deg,#00f5ff,#7f00ff);
     border-radius: 25px;
-    padding: 12px 28px;
-    font-weight: bold;
     color: white !important;
-    border: none;
-}
-
-.stButton>button:hover {
-    box-shadow: 0 0 25px #00f5ff;
+    padding: 10px 25px;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# =====================================================
-# HERO SECTION
-# =====================================================
-
 st.markdown("""
-<div style="padding:50px;border-radius:25px;
+<div style="padding:40px;border-radius:25px;
 background:linear-gradient(135deg,#00f5ff,#7f00ff);
-text-align:center;
-box-shadow:0 0 40px rgba(0,255,255,0.6);
-margin-bottom:40px;">
+text-align:center;margin-bottom:40px;">
 <h1>🚀 AI Career Mobility Intelligence Platform (India)</h1>
-<h3>Entrapment • Burnout • Market Demand • Skill Intelligence</h3>
+<h4>Entrapment • Burnout • Market Demand • Skill Intelligence</h4>
 </div>
 """, unsafe_allow_html=True)
 
 # =====================================================
-# MARKET DATA
+# HELPERS
 # =====================================================
 
-market_data = pd.DataFrame({
-    "Skill": ["python", "cloud", "ai", "ml", "devops", "data", "backend", "system design"],
-    "DemandScore": [95, 90, 98, 92, 85, 93, 88, 87],
-    "AvgSalary_LPA": [12, 15, 20, 18, 14, 16, 13, 17]
-})
+def get_secret(key):
+    try:
+        return st.secrets[key]
+    except:
+        return None
 
-# =====================================================
-# JOB FETCH FUNCTION
-# =====================================================
+def clean_company_name(name):
+    remove = ["ltd","limited","pvt","private","inc","llp"]
+    name = name.lower()
+    for r in remove:
+        name = name.replace(r,"")
+    return name.strip()
+
+# -----------------------------------------------------
+# Salary Estimation Engine (AI Modeled)
+# -----------------------------------------------------
+
+def estimate_salary_from_title(title, description):
+    title = title.lower()
+    description = description.lower()
+
+    base = 6  # Base LPA
+
+    if "senior" in title:
+        base += 6
+    if "lead" in title or "architect" in title:
+        base += 10
+    if "manager" in title:
+        base += 12
+
+    if "python" in title:
+        base += 3
+    if "ai" in description or "machine learning" in description:
+        base += 8
+    if "cloud" in description:
+        base += 4
+    if "devops" in description:
+        base += 5
+
+    match = re.search(r'(\d+)\s*-\s*(\d+)\s*years', description)
+    if match:
+        exp = int(match.group(2))
+        base += exp * 0.8
+
+    return round(base,1), round(base*1.4,1)
+
+# -----------------------------------------------------
+# APIs
+# -----------------------------------------------------
 
 @st.cache_data(ttl=3600)
 def fetch_jobs(app_id, app_key, keyword, city):
-    url = f"https://api.adzuna.com/v1/api/jobs/in/search/1?app_id={app_id}&app_key={app_key}&what={keyword}&where={city}"
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()
-    return response.json()
+    url = "https://api.adzuna.com/v1/api/jobs/in/search/1"
+    params = {
+        "app_id": app_id,
+        "app_key": app_key,
+        "what": keyword,
+        "where": city,
+        "results_per_page": 10
+    }
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+@st.cache_data(ttl=86400)
+def get_company_details(company):
+    api_key = get_secret("API_NINJAS_KEY")
+    if not api_key:
+        return None
+
+    cleaned = clean_company_name(company)
+    encoded = quote(cleaned)
+
+    try:
+        r = requests.get(
+            f"https://api.api-ninjas.com/v1/company?name={encoded}",
+            headers={"X-Api-Key": api_key},
+            timeout=5
+        )
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        if not data:
+            return None
+        return data[0]
+    except:
+        return None
 
 # =====================================================
 # TABS
 # =====================================================
 
 tab1, tab2, tab3, tab4 = st.tabs(
-    ["🧠 Career Risk", "🏢 Market & Jobs", "📊 Skill Intelligence", "📈 Executive Summary"]
+    ["🧠 Career Risk","🏢 Market & Jobs","📊 Skill Intelligence","📈 Executive Summary"]
 )
 
 # =====================================================
-# TAB 1 – CAREER RISK + GRAPHS
+# TAB 1 – CAREER RISK
 # =====================================================
 
 with tab1:
-
     st.header("Career Entrapment & Burnout Prediction")
 
-    col1, col2 = st.columns(2)
-
-    with col1:
-        skills = st.text_area("Your Skills (comma separated)")
-        salary = st.number_input("Current Salary (₹ LPA)", min_value=0.0)
-        years = st.number_input("Years of Experience", min_value=0.0)
-
-    with col2:
-        debt = st.number_input("Total Debt (₹)", min_value=0.0)
-        savings = st.number_input("Savings (₹)", min_value=0.0)
-        expenses = st.number_input("Monthly Expenses (₹)", min_value=1.0)
+    skills = st.text_area("Your Skills (comma separated)")
+    salary = st.number_input("Current Salary (₹ LPA)", min_value=0.0)
+    years = st.number_input("Years Experience", min_value=0.0)
+    debt = st.number_input("Debt (₹)", min_value=0.0)
+    savings = st.number_input("Savings (₹)", min_value=0.0)
+    expenses = st.number_input("Monthly Expenses (₹)", min_value=1.0)
 
     if st.button("Analyze Career"):
+        skill_list = skills.split(",")
+        portability = min(25, len(skill_list)*1.5)
+        debt_ratio = debt/salary if salary>0 else 0
+        runway = savings/expenses
+        decay = (1-math.exp(-0.05*years))*25
 
-        skill_list = [s.strip().lower() for s in skills.split(",") if s.strip()]
-        skill_count = len(skill_list)
-
-        portability = min(25, skill_count * 1.5)
-        income_risk = 15
-        debt_ratio = debt / salary if salary > 0 else 0
-        runway = savings / expenses if expenses > 0 else 0
-
-        lock_in = min(25, debt_ratio * 15 + (12/runway if runway > 0 else 10))
-        decay = (1 - math.exp(-0.05 * years)) * 25
-
-        total_score = min(100, portability + income_risk + lock_in + decay)
-        burnout_probability = min(100, years * 4 + debt_ratio * 50)
-
-        st.session_state.entrapment = total_score
-        st.session_state.burnout = burnout_probability
+        st.session_state.entrapment = min(100, portability+15+(debt_ratio*20)+decay)
+        st.session_state.burnout = min(100, years*4 + debt_ratio*40)
         st.session_state.runway = runway
-        st.session_state.skill_count = skill_count
-        st.session_state.portability = portability
-        st.session_state.lock_in = lock_in
-        st.session_state.decay = decay
 
     if "entrapment" in st.session_state:
-
-        entrapment = st.session_state.entrapment
-        burnout = st.session_state.burnout
-
-        colA, colB, colC = st.columns(3)
-        colA.metric("🔥 Entrapment Score", f"{round(entrapment,2)}/100")
-        colB.metric("⚠ Burnout Probability", f"{round(burnout,2)}%")
-        colC.metric("💰 Financial Runway", f"{round(st.session_state.runway,2)} months")
-
-        st.markdown("---")
-
-        # Gauge Charts
-        col1, col2 = st.columns(2)
-
-        with col1:
-            fig_gauge1 = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=entrapment,
-                title={'text': "Entrapment Score"},
-                gauge={'axis': {'range': [0,100]}}
-            ))
-            fig_gauge1.update_layout(template="plotly_dark")
-            st.plotly_chart(fig_gauge1, use_container_width=True)
-
-        with col2:
-            fig_gauge2 = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=burnout,
-                title={'text': "Burnout Probability"},
-                gauge={'axis': {'range': [0,100]}}
-            ))
-            fig_gauge2.update_layout(template="plotly_dark")
-            st.plotly_chart(fig_gauge2, use_container_width=True)
-
-        # Radar Chart
-        radar_df = pd.DataFrame({
-            "Metric": ["Skill Portability", "Debt Lock-in", "Career Stagnation"],
-            "Score": [
-                st.session_state.portability,
-                st.session_state.lock_in,
-                st.session_state.decay
-            ]
-        })
-
-        fig_radar = px.line_polar(
-            radar_df,
-            r="Score",
-            theta="Metric",
-            line_close=True,
-            template="plotly_dark"
-        )
-        fig_radar.update_traces(fill='toself')
-        st.plotly_chart(fig_radar, use_container_width=True)
+        col1,col2,col3 = st.columns(3)
+        col1.metric("Entrapment Score", round(st.session_state.entrapment,2))
+        col2.metric("Burnout %", round(st.session_state.burnout,2))
+        col3.metric("Financial Runway (months)", round(st.session_state.runway,2))
 
 # =====================================================
-# TAB 2 – LIVE JOBS
+# TAB 2 – MARKET & JOBS
 # =====================================================
 
 with tab2:
 
-    st.header("Live Market Intelligence")
+    if st.session_state.page=="company" and st.session_state.selected_job:
 
-    city = st.selectbox("Select Indian City", ["bangalore", "hyderabad", "mumbai", "pune", "chennai","noida"])
-    keyword = st.text_input("Job Keyword")
+        if st.button("⬅ Back to Jobs"):
+            st.session_state.page="jobs"
+            st.rerun()
 
-    if st.button("Fetch Live Jobs"):
+        job=st.session_state.selected_job
+        company=st.session_state.selected_company
 
-        APP_ID = os.getenv("ADZUNA_ID")
-        APP_KEY = os.getenv("ADZUNA_KEY")
+        st.header(f"🏢 {company}")
 
-        if not APP_ID or not APP_KEY:
-            st.error("API keys not configured.")
+        st.subheader("📄 Job Description")
+        st.write(job.get("description","No description available"))
+
+        # Salary Logic
+        salary_min = job.get("salary_min")
+        salary_max = job.get("salary_max")
+
+        if salary_min and salary_max:
+            st.metric("💰 Salary (Actual)",
+                      f"₹ {int(salary_min)} - ₹ {int(salary_max)}")
         else:
-            with st.spinner("Fetching live jobs..."):
-                data = fetch_jobs(APP_ID, APP_KEY, keyword, city)
+            est_min, est_max = estimate_salary_from_title(
+                job.get("title",""),
+                job.get("description","")
+            )
+            st.metric("💰 Estimated Salary (AI Modeled)",
+                      f"₹ {est_min} - ₹ {est_max} LPA")
 
-            jobs = []
-            for job in data.get("results", [])[:10]:
-                jobs.append({
-                    "Title": job["title"],
-                    "Company": job.get("company", {}).get("display_name", "Unknown"),
-                    "Location": job["location"]["display_name"]
-                })
+        # Company Intelligence
+        st.subheader("🏢 Company Intelligence")
 
-            if jobs:
-                st.dataframe(pd.DataFrame(jobs))
+        details = get_company_details(company)
+
+        if details:
+            col1,col2,col3=st.columns(3)
+            col1.metric("Founded", details.get("founded","N/A"))
+            col2.metric("Employees", details.get("employees","N/A"))
+            col3.metric("Industry", details.get("industry","N/A"))
+
+            st.write("CEO:", details.get("ceo","N/A"))
+            st.write("HQ:", details.get("city","")+" "+details.get("country",""))
+            st.write("Market Cap:", details.get("market_cap","N/A"))
+        else:
+            desc = job.get("description","").lower()
+
+            industry = "Technology Services"
+            if "finance" in desc:
+                industry = "Financial Services"
+            if "health" in desc:
+                industry = "Healthcare Tech"
+
+            col1,col2,col3 = st.columns(3)
+            col1.metric("Industry (Estimated)", industry)
+            col2.metric("Company Size (Estimated)", "200-1000 employees")
+            col3.metric("Revenue (Estimated)", "₹100Cr - ₹500Cr")
+
+    else:
+
+        st.header("Live Market Intelligence")
+
+        city=st.selectbox("Select City",
+                          ["bangalore","hyderabad","mumbai","pune","chennai","noida"])
+        keyword=st.text_input("Job Keyword")
+
+        if st.button("Fetch Live Jobs"):
+
+            APP_ID=get_secret("ADZUNA_ID")
+            APP_KEY=get_secret("ADZUNA_KEY")
+
+            data=fetch_jobs(APP_ID,APP_KEY,keyword,city)
+
+            if "error" in data:
+                st.error(data["error"])
             else:
-                st.warning("No jobs found.")
+                st.session_state.job_results=data.get("results",[])
+
+        if st.session_state.job_results:
+            for idx,job in enumerate(st.session_state.job_results):
+                col1,col2=st.columns([4,2])
+                col1.write(f"**{job['title']}**")
+                company=job.get("company",{}).get("display_name","Unknown")
+
+                if col2.button(company,key=f"btn_{idx}"):
+                    st.session_state.selected_company=company
+                    st.session_state.selected_job=job
+                    st.session_state.page="company"
+                    st.rerun()
 
 # =====================================================
-# TAB 3 – RESUME UPLOAD + SKILL GAP
+# TAB 3 – SKILL INTELLIGENCE
 # =====================================================
 
 with tab3:
+    st.header("Skill Gap Analysis")
+    uploaded=st.file_uploader("Upload Resume", type=["pdf","docx","txt"])
+    resume_text=""
 
-    st.header("Skill Gap & Market Demand Analysis")
-
-    uploaded_file = st.file_uploader("Upload Resume (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
-
-    resume_text = ""
-
-    if uploaded_file is not None:
-
-        if uploaded_file.type == "application/pdf":
-            pdf_reader = PyPDF2.PdfReader(uploaded_file)
-            for page in pdf_reader.pages:
-                resume_text += page.extract_text() or ""
-
-        elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-            doc = Document(uploaded_file)
-            for para in doc.paragraphs:
-                resume_text += para.text + "\n"
-
-        elif uploaded_file.type == "text/plain":
-            resume_text = uploaded_file.read().decode("utf-8")
-
-    if st.button("Analyze Skill Gap"):
-
-        if not resume_text:
-            st.warning("Please upload a valid resume file.")
+    if uploaded:
+        if uploaded.type=="application/pdf":
+            reader=PyPDF2.PdfReader(uploaded)
+            for page in reader.pages:
+                resume_text+=page.extract_text() or ""
+        elif uploaded.type.endswith("document"):
+            doc=Document(uploaded)
+            for p in doc.paragraphs:
+                resume_text+=p.text+"\n"
         else:
-            resume_lower = resume_text.lower()
+            resume_text=uploaded.read().decode()
 
-            detected = [skill for skill in market_data["Skill"] if skill in resume_lower]
-            missing = list(set(market_data["Skill"]) - set(detected))
+    if st.button("Analyze Skills"):
+        skills_db=["python","ai","ml","cloud","devops","data"]
+        found=[s for s in skills_db if s in resume_text.lower()]
+        missing=list(set(skills_db)-set(found))
 
-            st.success(f"Detected Skills: {detected}")
-            st.error(f"Missing High-Demand Skills: {missing}")
-
-            demand_df = market_data.copy()
-            demand_df["Present"] = demand_df["Skill"].apply(
-                lambda x: 1 if x in detected else 0
-            )
-
-            fig = px.bar(
-                demand_df,
-                x="Skill",
-                y="DemandScore",
-                color="Present",
-                template="plotly_dark"
-            )
-
-            st.plotly_chart(fig, use_container_width=True)
+        st.success(f"Detected Skills: {found}")
+        st.error(f"Missing Skills: {missing}")
 
 # =====================================================
 # TAB 4 – EXECUTIVE SUMMARY
 # =====================================================
 
 with tab4:
-
-    st.header("Executive AI Summary")
+    st.header("Executive Summary")
 
     if "entrapment" not in st.session_state:
-        st.info("Run Career Risk Analysis first.")
+        st.info("Run Career Risk first")
     else:
-
-        if st.button("Generate Executive Report"):
-
-            entrapment = st.session_state.entrapment
-            burnout = st.session_state.burnout
-            runway = st.session_state.runway
-            skill_count = st.session_state.skill_count
-
-            if entrapment > 70:
-                risk = "🔴 High Career Risk"
-            elif entrapment > 40:
-                risk = "🟠 Moderate Risk"
-            else:
-                risk = "🟢 Low Risk"
-
-            recommendations = []
-
-            if entrapment > 70:
-                recommendations.append("Initiate job switch within 6 months.")
-            if burnout > 60:
-                recommendations.append("Reduce workload.")
-            if runway < 6:
-                recommendations.append("Increase savings buffer.")
-            if skill_count < 4:
-                recommendations.append("Add AI/Cloud/Data skills.")
-
-            if not recommendations:
-                recommendations.append("Maintain growth trajectory.")
+        if st.button("Generate Report"):
+            risk="High" if st.session_state.entrapment>70 else "Moderate" if st.session_state.entrapment>40 else "Low"
 
             st.success(f"""
-### Strategic Executive Assessment
-
 Risk Level: {risk}
 
-Recommendations:
-- {'\n- '.join(recommendations)}
+Burnout Probability: {round(st.session_state.burnout,2)}%
+
+Recommended Actions:
+• Upskill in AI/Cloud
+• Improve savings buffer
+• Monitor market demand
 """)
-            
-            
